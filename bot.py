@@ -167,7 +167,7 @@ def compare_animal(record, target_description, user_images=None):
                 "content": [
                     {
                         "type": "text",
-                        "text": f'Сравните двух животных. Нужно определить, первое животное это то же самое что и второе, либо это разные животные. В конце твоего сообщения должен быть итоговый ответ.\n\n Наченем. Описание первого животного: {target_description}\nФотографии первого животного:'
+                        "text": f'Сравните двух животных. Нужно определить, первое животное это то же самое что и второе, либо это разные животные. В конце твоего сообщения должен быть итоговый ответ.\n\n Наченем. Описание (запрос по) первого животного: {target_description}\nФотографии первого животного:'
                     }
                 ]
             }
@@ -205,7 +205,7 @@ def compare_animal(record, target_description, user_images=None):
 
         messages[0]['content'].append({
             "type": "text",
-            "text": f'После рассуждений, напиши итоговые ответ в формате: \n\nОтвет: ```json {{"result": "похожее объявление" или "другое животное"}}```'
+            "text": f'После рассуждений, обязательно нужно написать итоговый ответ в формате: \n\nОтвет: ```json {{"result": "похожее объявление" или "другое животное"}}```'
         })
 
         logger.info("Отправка запроса к LLM")
@@ -373,7 +373,7 @@ def handle_search_request(message, text, user_images=None):
                             json_string = result.split("Ответ:")[-1].strip().replace('```json', '').replace('```', '')
                             attempts = 0
                             json_result = None
-                            while attempts < 3:
+                            while attempts < 1:
                                 try:
                                     json_result = json.loads(json_string)
                                     break
@@ -393,6 +393,9 @@ def handle_search_request(message, text, user_images=None):
                                 media_group = []
                                 first_photo = True
                                 for img_url in record['imgs']:
+                                    if img_url is None:
+                                        logger.error("Обнаружена ссылка на изображение: None")
+                                        continue
                                     try:
                                         img_response = requests.get(img_url)
                                         img_dir = 'tg_imgs'
@@ -421,7 +424,7 @@ def handle_search_request(message, text, user_images=None):
                                         continue
                                         
                                 if media_group:
-                                    bot.send_media_group(message.chat.id, media_group)
+                                    bot.send_media_group(message.chat.id, media_group, reply_to_message_id=message.message_id)
                                     logger.info(f"Отправлена группа изображений с описанием")
                             else:
                                 logger.info(f"Объявление не похоже: {record['link']}\n\n")
