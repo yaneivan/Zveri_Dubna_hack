@@ -8,6 +8,8 @@ from mistralai import Mistral
 import telebot
 import logging
 import traceback
+from queue import Queue, Empty
+from threading import Thread, Event
 
 # Настройка логирования
 logging.basicConfig(
@@ -173,10 +175,13 @@ def compare_animal(record, target_description, user_images=None):
 
         # Добавляем фотографии из базы данных
         for img in record['imgs']:
-            messages[0]['content'].append({
-                "type": "image_url",
-                "image_url": img
-            })
+            if img is not None:
+                messages[0]['content'].append({
+                    "type": "image_url",
+                    "image_url": img
+                })
+            else:
+                logger.warning("Обнаружена ссылка на изображение: None")
 
         messages[0]['content'].append({
             "type": "text",
@@ -232,6 +237,9 @@ client = Mistral(api_key=api_key)
 # Создаем словарь для хранения временных данных пользователей
 user_data = {}
 
+# Создаем очередь для обработки запросов пользователей
+user_queue = Queue()
+
 # Функция для обработки команды /help
 @bot.message_handler(commands=['help'])
 def send_help(message):
@@ -279,7 +287,7 @@ def handle_photos(message):
     
     # Если есть подпись к фото, обрабатываем её как описание
     if message.caption:
-        handle_search_request(message, message.caption, [image_path])
+        user_queue.put((message, message.caption, [image_path]))
     else:
         bot.reply_to(message, "Пожалуйста, добавьте описание к фотографии")
 
@@ -288,7 +296,7 @@ def handle_photos(message):
 def handle_message(message):
     user_id = message.from_user.id
     logger.info(f"Получено сообщение от пользователя {user_id}: {message.text}")
-    handle_search_request(message, message.text)
+    user_queue.put((message, message.text, None))
 
 def handle_search_request(message, text, user_images=None):
     logger.info(f"Обработка поискового запроса от пользователя {message.from_user.id}")
@@ -438,11 +446,29 @@ def handle_search_request(message, text, user_images=None):
         logger.error(traceback.format_exc())
         bot.reply_to(message, "Произошла ошибка при обработке вашего сообщения. Пожалуйста, попробуйте позже 😿")
 
+def process_queue(stop_event):
+    while not stop_event.is_set():
+        try:
+            message, text, user_images = user_queue.get(timeout=1)
+            handle_search_request(message, text, user_images)
+            user_queue.task_done()
+        except Empty:
+            continue
+
+# Запуск потока для обработки очереди
+stop_event = Event()
+queue_thread = Thread(target=process_queue, args=(stop_event,), daemon=True)
+queue_thread.start()
+
 # Запуск бота
 if __name__ == '__main__':
     logger.info("Запуск бота")
     try:
         bot.polling()
+    except KeyboardInterrupt:
+        logger.info("Остановка бота")
+        stop_event.set()
+        queue_thread.join()
     except Exception as e:
         logger.critical(f"Критическая ошибка при работе бота: {e}")
         logger.critical(traceback.format_exc())
