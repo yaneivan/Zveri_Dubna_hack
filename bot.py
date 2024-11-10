@@ -162,18 +162,25 @@ def compare_animal(record, target_description, user_images=None):
         messages = [
             {
                 "role": "user",
-                "content": []
+                "content": [
+                    {
+                        "type": "text",
+                        "text": f"Сравните двух животных. Нужно определить, первое животное это то же самое что и второе, либо это разные животные. \n Описание первого животного: {target_description}\nФотографии первого животного:"
+                    }
+                ]
             }
         ]
 
-        messages[0]['content'].append({
-            "type": "text",
-            "text": f"Определите, найденное животное, это искомое или другое. Описание искомого животного: {target_description}"
-        })
+        # Добавляем фотографии из базы данных
+        for img in record['imgs']:
+            messages[0]['content'].append({
+                "type": "image_url",
+                "image_url": img
+            })
 
         messages[0]['content'].append({
             "type": "text",
-            "text": f"Описание найденного живтного: {record['description']}"
+            "text": f"\n\nОписание второго животного: {record['description']}\nФотографии второго животного:"
         })
 
         # Добавляем фотографии пользователя, если они есть
@@ -185,12 +192,10 @@ def compare_animal(record, target_description, user_images=None):
                         "type": "image_url",
                         "image_url": f"data:image/jpeg;base64,{base64_image}"
                     })
-
-        # Добавляем фотографии из базы данных
-        for img in record['imgs']:
+        else:
             messages[0]['content'].append({
-                "type": "image_url",
-                "image_url": img
+                "type": "text",
+                "text": f"Нет фотографий. "
             })
 
         messages[0]['content'].append({
@@ -253,10 +258,11 @@ def send_welcome(message):
     logger.info(f"Получена команда /start от пользователя {message.from_user.id}")
     bot.reply_to(message, 'Привет! 🐾 Отправьте мне описание потерянного или найденного животного и фотографии (если есть). Для помощи используйте /help')
 
-# Обработчик фотографий
+# Обработчик фотографий с подписью
 @bot.message_handler(content_types=['photo'])
 def handle_photos(message):
     user_id = message.from_user.id
+    logger.info(f"Получено фото с подписью от пользователя {user_id}")
     
     # Создаем директорию для входящих изображений, если её нет
     if not os.path.exists('tg_input_imgs'):
@@ -271,38 +277,18 @@ def handle_photos(message):
     with open(image_path, 'wb') as new_file:
         new_file.write(downloaded_file)
     
-    # Инициализируем или обновляем данные пользователя
-    if user_id not in user_data:
-        user_data[user_id] = {'images': [], 'description': None}
-    
-    user_data[user_id]['images'].append(image_path)
-    
-    # Если есть описание, обрабатываем запрос
-    if user_data[user_id]['description']:
-        handle_search_request(message, user_data[user_id]['description'], user_data[user_id]['images'])
+    # Если есть подпись к фото, обрабатываем её как описание
+    if message.caption:
+        handle_search_request(message, message.caption, [image_path])
     else:
-        bot.reply_to(message, "Фотография сохранена! Теперь отправьте описание ситуации.")
+        bot.reply_to(message, "Пожалуйста, добавьте описание к фотографии")
 
 # Функция для обработки текстовых сообщений
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
     user_id = message.from_user.id
     logger.info(f"Получено сообщение от пользователя {user_id}: {message.text}")
-    
-    # Сохраняем описание
-    if user_id not in user_data:
-        user_data[user_id] = {'images': [], 'description': None}
-    
-    user_data[user_id]['description'] = message.text
-    
-    # Если есть фотографии, обрабатываем запрос
-    if user_data[user_id]['images']:
-        handle_search_request(message, message.text, user_data[user_id]['images'])
-    else:
-        handle_search_request(message, message.text)
-    
-    # Очищаем данные пользователя после обработки
-    user_data[user_id] = {'images': [], 'description': None}
+    handle_search_request(message, message.text)
 
 def handle_search_request(message, text, user_images=None):
     logger.info(f"Обработка поискового запроса от пользователя {message.from_user.id}")
@@ -370,7 +356,7 @@ def handle_search_request(message, text, user_images=None):
                     )
                     sorted_data = filtered_data.sort_values(by='distance')
 
-                    for index, record in sorted_data.head(7).iterrows():
+                    for index, record in sorted_data.head(15).iterrows():
                         logger.info(f"Обработка записи {index + 1}: {record['title']}")
                         result = compare_animal(record, description, user_images)
                         
