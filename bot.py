@@ -156,7 +156,7 @@ def geocode_address(address):
         return None
 
 # Функция для сравнения животного с описанием
-def compare_animal(record, target_description):
+def compare_animal(record, target_description, user_images=None):
     logger.info(f"Сравнение животного с описанием: {target_description}")
     try:
         messages = [
@@ -176,8 +176,18 @@ def compare_animal(record, target_description):
             "text": f"Описание найденного живтного: {record['description']}"
         })
 
+        # Добавляем фотографии пользователя, если они есть
+        if user_images:
+            for img_path in user_images:
+                base64_image = encode_image(img_path)
+                if base64_image:
+                    messages[0]['content'].append({
+                        "type": "image_url",
+                        "image_url": f"data:image/jpeg;base64,{base64_image}"
+                    })
+
+        # Добавляем фотографии из базы данных
         for img in record['imgs']:
-            # logger.info(f"Добавление изображения: {img}")
             messages[0]['content'].append({
                 "type": "image_url",
                 "image_url": img
@@ -212,6 +222,9 @@ model = "pixtral-12b-2409"
 # Initialize the Mistral client
 client = Mistral(api_key=api_key)
 
+# Создаем словарь для хранения временных данных пользователей
+user_data = {}
+
 # Функция для обработки команды /help
 @bot.message_handler(commands=['help'])
 def send_help(message):
@@ -224,6 +237,7 @@ def send_help(message):
        - Статус (найдена/пропала)
        - Адрес
        - Описание животного
+    3. Можете прикрепить фотографии животного (до 10 штук)
     
     Пример сообщения:
     "Пропала собака в районе ул. Ленина, 5. Черная, с белым пятном на груди, отзывается на кличку Рекс"
@@ -237,15 +251,62 @@ def send_help(message):
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     logger.info(f"Получена команда /start от пользователя {message.from_user.id}")
-    bot.reply_to(message, 'Привет! 🐾 Отправьте мне описание потерянного или найденного животного. Для помощи используйте /help')
+    bot.reply_to(message, 'Привет! 🐾 Отправьте мне описание потерянного или найденного животного и фотографии (если есть). Для помощи используйте /help')
+
+# Обработчик фотографий
+@bot.message_handler(content_types=['photo'])
+def handle_photos(message):
+    user_id = message.from_user.id
+    
+    # Создаем директорию для входящих изображений, если её нет
+    if not os.path.exists('tg_input_imgs'):
+        os.makedirs('tg_input_imgs')
+    
+    # Получаем информацию о фото
+    file_info = bot.get_file(message.photo[-1].file_id)
+    downloaded_file = bot.download_file(file_info.file_path)
+    
+    # Сохраняем фото
+    image_path = f'tg_input_imgs/{user_id}_{file_info.file_path.split("/")[-1]}'
+    with open(image_path, 'wb') as new_file:
+        new_file.write(downloaded_file)
+    
+    # Инициализируем или обновляем данные пользователя
+    if user_id not in user_data:
+        user_data[user_id] = {'images': [], 'description': None}
+    
+    user_data[user_id]['images'].append(image_path)
+    
+    # Если есть описание, обрабатываем запрос
+    if user_data[user_id]['description']:
+        handle_search_request(message, user_data[user_id]['description'], user_data[user_id]['images'])
+    else:
+        bot.reply_to(message, "Фотография сохранена! Теперь отправьте описание ситуации.")
 
 # Функция для обработки текстовых сообщений
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
-    logger.info(f"Получено сообщение от пользователя {message.from_user.id}: {message.text}")
-    try:
-        text = message.text
+    user_id = message.from_user.id
+    logger.info(f"Получено сообщение от пользователя {user_id}: {message.text}")
+    
+    # Сохраняем описание
+    if user_id not in user_data:
+        user_data[user_id] = {'images': [], 'description': None}
+    
+    user_data[user_id]['description'] = message.text
+    
+    # Если есть фотографии, обрабатываем запрос
+    if user_data[user_id]['images']:
+        handle_search_request(message, message.text, user_data[user_id]['images'])
+    else:
+        handle_search_request(message, message.text)
+    
+    # Очищаем данные пользователя после обработки
+    user_data[user_id] = {'images': [], 'description': None}
 
+def handle_search_request(message, text, user_images=None):
+    logger.info(f"Обработка поискового запроса от пользователя {message.from_user.id}")
+    try:
         llm_response = get_vision_llm_response(text)
         logger.info(f"Ответ LLM: {llm_response}")
 
@@ -311,7 +372,7 @@ def handle_message(message):
 
                     for index, record in sorted_data.head(7).iterrows():
                         logger.info(f"Обработка записи {index + 1}: {record['title']}")
-                        result = compare_animal(record, description)
+                        result = compare_animal(record, description, user_images)
                         
                         if result:
                             json_string = result.split("Ответ:")[-1].strip()
