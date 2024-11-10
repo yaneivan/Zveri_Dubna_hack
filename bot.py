@@ -373,7 +373,7 @@ def handle_search_request(message, text, user_images=None):
                             json_string = result.split("Ответ:")[-1].strip().replace('```json', '').replace('```', '')
                             attempts = 0
                             json_result = None
-                            while attempts < 1:
+                            while attempts < 1: # попытки декодирования, если не получилось, то пропускаем, и надеемся что там будет "похожее объявление"
                                 try:
                                     json_result = json.loads(json_string)
                                     break
