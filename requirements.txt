@@ -3,4 +3,4 @@ geopy
 mistralai
 requests
 aiogram
-
+selenium
