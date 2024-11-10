@@ -167,7 +167,7 @@ def compare_animal(record, target_description, user_images=None):
                 "content": [
                     {
                         "type": "text",
-                        "text": f'Сравните двух животных. Нужно определить, первое животное это то же самое что и второе, либо это разные животные. В конце твоего сообщения должен быть итоговый ответ.\n\n Наченем. Описание (запрос по) первого животного: {target_description}\nФотографии первого животного:'
+                        "text": f'Сравните двух животных. Нужно определить, первое животное это то же самое что и второе, либо это разные животные. Для этого тебе нужно обратить внимание на расцветку, породу, пол, размеры, и так далее. Особенное внимание нужно уделять расцветке. В конце твоего сообщения должен быть итоговый ответ.\n\n Наченем. Описание (запрос по) первого животного: {target_description}\nФотографии первого животного:'
                     }
                 ]
             }
@@ -224,9 +224,6 @@ def compare_animal(record, target_description, user_images=None):
 
 # Инициализация бота
 bot = telebot.TeleBot('1886756451:AAGvgfHgeuMu07oiKlTZoPtgDHeqb-lhlrk')
-
-# Retrieve the API key from environment variables
-api_key = "BsoGgWX10TneaJMu89JevSiGCjU3ODnG"
 
 # Specify model
 model = "pixtral-12b-2409"
