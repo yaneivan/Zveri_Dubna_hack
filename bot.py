@@ -165,7 +165,7 @@ def compare_animal(record, target_description, user_images=None):
                 "content": [
                     {
                         "type": "text",
-                        "text": f"Сравните двух животных. Нужно определить, первое животное это то же самое что и второе, либо это разные животные. \n Описание первого животного: {target_description}\nФотографии первого животного:"
+                        "text": f'Сравните двух животных. Нужно определить, первое животное это то же самое что и второе, либо это разные животные. В конце твоего сообщения должен быть итоговый ответ.\n\n Наченем. Описание первого животного: {target_description}\nФотографии первого животного:'
                     }
                 ]
             }
@@ -200,7 +200,7 @@ def compare_animal(record, target_description, user_images=None):
 
         messages[0]['content'].append({
             "type": "text",
-            "text": f'После рассуждений, напишите ответ в формате: Ответ: {{"result": "похожее объявление" или "другое животное"}}'
+            "text": f'После рассуждений, напиши итоговые ответ в формате: \n\nОтвет: ```json {{"result": "похожее объявление" или "другое животное"}}```'
         })
 
         logger.info("Отправка запроса к LLM")
@@ -212,6 +212,8 @@ def compare_animal(record, target_description, user_images=None):
         return chat_response.choices[0].message.content
     except Exception as e:
         logger.error(f"Ошибка при сравнении животных: {e}")
+        logger.error(f"Ошибка вызвана объявлением: {record['link']}, с описанием: {record['description']}")
+        logger.error(f"Ссылки на изображения: {record['imgs']}")
         logger.error(traceback.format_exc())
         return None
 
@@ -251,13 +253,11 @@ def send_help(message):
     /help - Показать эту справку
     """
     bot.reply_to(message, help_text)
-
 # Функция для обработки команды /start
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     logger.info(f"Получена команда /start от пользователя {message.from_user.id}")
     bot.reply_to(message, 'Привет! 🐾 Отправьте мне описание потерянного или найденного животного и фотографии (если есть). Для помощи используйте /help')
-
 # Обработчик фотографий с подписью
 @bot.message_handler(content_types=['photo'])
 def handle_photos(message):
@@ -301,6 +301,7 @@ def handle_search_request(message, text, user_images=None):
             llm_data = json.loads(llm_response)
         except json.JSONDecodeError as e:
             logger.error(f"Ошибка декодирования JSON: {e}")
+            logger.error(f"llm_response: {llm_response}")
             logger.error(traceback.format_exc())
             llm_data = {}
 
@@ -361,46 +362,63 @@ def handle_search_request(message, text, user_images=None):
                         result = compare_animal(record, description, user_images)
                         
                         if result:
-                            json_string = result.split("Ответ:")[-1].strip()
-                            try:
-                                json_result = json.loads(json_string)
-                                if json_result['result'] == "похожее объявление":
-                                    logger.info(f"Найдено похожее объявление: {record['link']}")
-                                    # Создаем список медиа с описанием в первом фото
-                                    media_group = []
-                                    first_photo = True
-                                    for img_url in record['imgs']:
-                                        try:
-                                            img_response = requests.get(img_url)
-                                            img_dir = 'tg_imgs'
-                                            if not os.path.exists(img_dir):
-                                                os.makedirs(img_dir)
-                                            img_path = os.path.join(img_dir, f"{record['link'].split('/')[-1]}_{len(media_group)}.jpg")
-                                            with open(img_path, 'wb') as img_file:
-                                                img_file.write(img_response.content)
-                                            
-                                            if first_photo:
-                                                # К первому фото добавляем описание
-                                                caption = f"Результат: {json_result['result']} 🐾\nОписание: {record['description']}\nСсылка: {record['link']}\n"
-                                                media_group.append(telebot.types.InputMediaPhoto(open(img_path, 'rb'), caption=caption))
-                                                first_photo = False
-                                            else:
-                                                media_group.append(telebot.types.InputMediaPhoto(open(img_path, 'rb')))
-                                        except Exception as e:
-                                            logger.error(f"Ошибка при обработке изображения: {e}")
-                                            logger.error(traceback.format_exc())
-                                            continue
-                                    
-                                    if media_group:
-                                        bot.send_media_group(message.chat.id, media_group)
-                                        logger.info(f"Отправлена группа изображений с описанием")
+                            json_string = result.split("Ответ:")[-1].strip().replace('```json', '').replace('```', '')
+                            attempts = 0
+                            json_result = None
+                            while attempts < 3:
+                                try:
+                                    json_result = json.loads(json_string)
+                                    break
+                                except json.JSONDecodeError:
+                                    attempts += 1
+                                    logger.warning(f"Попытка {attempts}: ошибка декодирования JSON")
+                            
+                            if json_result is None:
+                                if 'похожее объявление' in result and not("другое животное" in result):
+                                    json_result = {'result': 'похожее объявление'}
                                 else:
-                                    logger.info(f"Объявление не похоже: {record['link']}")
-                                    if index == len(sorted_data.head(7)) - 1:
-                                        bot.reply_to(message, "К сожалению, не нашлось похожих объявлений 😿🐾💔\nНо мы продолжим искать! 🔍✨\nПопробуйте проверить позже или измените описание 🌟")
-                            except json.JSONDecodeError as e:
-                                logger.error(f"Ошибка парсинга результата: {e}")
-                                logger.error(traceback.format_exc())
+                                    continue
+
+                            if json_result['result'] == "похожее объявление":
+                                logger.info(f"Найдено похожее объявление: {record['link']}")
+                                # Создаем список медиа с описанием в первом фото
+                                media_group = []
+                                first_photo = True
+                                for img_url in record['imgs']:
+                                    try:
+                                        img_response = requests.get(img_url)
+                                        img_dir = 'tg_imgs'
+                                        if not os.path.exists(img_dir):
+                                            os.makedirs(img_dir)
+                                        img_path = os.path.join(img_dir, f"{record['link'].split('/')[-1]}_{len(media_group)}.jpg")
+                                        with open(img_path, 'wb') as img_file:
+                                            img_file.write(img_response.content)
+                                                                                
+                                        if first_photo:
+                                            # К первому фото добавляем описание
+                                            caption = (
+                                                f"Результат: {json_result['result']} 🐾\n"
+                                                f"Описание: {record['description']}\n"
+                                                f"Адрес: {record['address']}\n"
+                                                f"Ссылка: {record['link']}\n"
+                                                f"GPS метка: {record['latitude']}, {record['longitude']}\n"
+                                            )
+                                            media_group.append(telebot.types.InputMediaPhoto(open(img_path, 'rb'), caption=caption))
+                                            first_photo = False
+                                        else:
+                                            media_group.append(telebot.types.InputMediaPhoto(open(img_path, 'rb')))
+                                    except Exception as e:
+                                        logger.error(f"Ошибка при обработке изображения: {e}")
+                                        logger.error(traceback.format_exc())
+                                        continue
+                                        
+                                if media_group:
+                                    bot.send_media_group(message.chat.id, media_group)
+                                    logger.info(f"Отправлена группа изображений с описанием")
+                            else:
+                                logger.info(f"Объявление не похоже: {record['link']}\n\n")
+                                if index == len(sorted_data.head(7)) - 1:
+                                    bot.reply_to(message, "К сожалению, не нашлось похожих объявлений 😿🐾💔\nНо мы продолжим искать! 🔍✨\nПопробуйте проверить позже или измените описание 🌟")
 
                 else:
                     logger.warning("Не удалось получить координаты")
@@ -414,6 +432,9 @@ def handle_search_request(message, text, user_images=None):
 
     except Exception as e:
         logger.error(f"Критическая ошибка при обработке сообщения: {e}")
+        logger.error(f"message: {message}")
+        logger.error(f"text: {text}")
+        logger.error(f"user_images: {user_images}")
         logger.error(traceback.format_exc())
         bot.reply_to(message, "Произошла ошибка при обработке вашего сообщения. Пожалуйста, попробуйте позже 😿")
 
