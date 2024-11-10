@@ -167,26 +167,11 @@ def compare_animal(record, target_description, user_images=None):
                 "content": [
                     {
                         "type": "text",
-                        "text": f'Сравните двух животных. Нужно определить, первое животное это то же самое что и второе, либо это разные животные. Для этого тебе нужно обратить внимание на расцветку, породу, пол, размеры, и так далее. Особенное внимание нужно уделять расцветке. В конце твоего сообщения должен быть итоговый ответ.\n\n Наченем. Описание (запрос по) первого животного: {target_description}\nФотографии первого животного:'
+                        "text": f'Сравните двух животных. Нужно определить, первое животное это то же самое что и второе, либо это разные животные. Для этого тебе нужно обратить внимание на расцветку, породу, пол, размеры, и так далее. Особенное внимание нужно уделять расцветке. Если информации недостаточно, чтобы точно определить, то скажи что это одинаковые животные. В конце твоего сообщения должен быть итоговый ответ.\n\n Наченем. Описание первого животного (учти, что описание первого животного может быть неполным, потому что пишется впопыхах): {target_description}\nФотографии первого животного:'
                     }
                 ]
             }
         ]
-
-        # Добавляем фотографии из базы данных
-        for img in record['imgs']:
-            if img is not None:
-                messages[0]['content'].append({
-                    "type": "image_url",
-                    "image_url": img
-                })
-            else:
-                logger.warning("Обнаружена ссылка на изображение: None")
-
-        messages[0]['content'].append({
-            "type": "text",
-            "text": f"\n\nОписание второго животного: {record['description']}\nФотографии второго животного:"
-        })
 
         # Добавляем фотографии пользователя, если они есть
         if user_images:
@@ -203,9 +188,30 @@ def compare_animal(record, target_description, user_images=None):
                 "text": f"Нет фотографий. "
             })
 
+
+
         messages[0]['content'].append({
             "type": "text",
-            "text": f'После рассуждений, обязательно нужно написать итоговый ответ в формате: \n\nОтвет: ```json {{"result": "похожее объявление" или "другое животное"}}```'
+            "text": f"\n\nОписание второго животного: {record['description']}\nФотографии второго животного:"
+        })
+
+        # Добавляем фотографии из базы данных
+        for img in record['imgs']:
+            if img is not None:
+                messages[0]['content'].append({
+                    "type": "image_url",
+                    "image_url": img
+                })
+            else:
+                logger.warning("Обнаружена ссылка на изображение: None")
+
+
+
+
+
+        messages[0]['content'].append({
+            "type": "text",
+            "text": f'После рассуждений, обязательно нужно написать итоговый ответ в формате: \n\nВ ответе может быть только одно из двух значений: "похожее объявление" или "другое животное". Никаких других вариантов итогового ответа не предусмотрено. Если не уверен, говори что похож. Ответ: ```json {{"result": "похожее объявление" или "другое животное"}}```'
         })
 
         logger.info("Отправка запроса к LLM")
@@ -362,9 +368,10 @@ def handle_search_request(message, text, user_images=None):
                     )
                     sorted_data = filtered_data.sort_values(by='distance')
 
-                    for index, record in sorted_data.head(15).iterrows():
+                    for index, record in sorted_data.head(7).iterrows():
                         logger.info(f"Обработка записи {index + 1}: {record['title']}")
                         result = compare_animal(record, description, user_images)
+                        logger.info(f"Результат сравнения: {result}")
                         
                         if result:
                             json_string = result.split("Ответ:")[-1].strip().replace('```json', '').replace('```', '')
