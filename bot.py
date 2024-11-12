@@ -77,6 +77,7 @@ def get_vision_llm_response(text):
                         "text": f"""
 **Objective:**
 Analyze the given text and extract the address, animal type, status, and description.
+Возможно что пользователь скажет что видел где-то какое-то животное, тогда нужно считать что это животное найдено. 
 
 **Format Requirements:**
 - Do not explain your answer. Just output the JSON.
@@ -432,9 +433,8 @@ def handle_search_request(message, text, user_images=None):
                                     logger.info(f"Отправлена группа изображений с описанием")
                             else:
                                 logger.info(f"Объявление не похоже: {record['link']}\n\n")
-                                if index == len(sorted_data.head(7)) - 1:
+                                if index == sorted_data.head(7).index[-1]:
                                     bot.reply_to(message, "К сожалению, не нашлось похожих объявлений 😿🐾💔\nНо мы продолжим искать! 🔍✨\nПопробуйте проверить позже или измените описание 🌟")
-
                 else:
                     logger.warning("Не удалось получить координаты")
                     bot.reply_to(message, "Не удалось получить координаты для данного адреса 😿")
